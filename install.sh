@@ -6,10 +6,9 @@ NZ_BASE_PATH="${NZ_BASE_PATH:-/opt/nezha}"
 NZ_DASHBOARD_PATH="${NZ_BASE_PATH}/dashboard"
 NZ_AGENT_PATH="${NZ_BASE_PATH}/agent"
 NZ_DASHBOARD_SERVICE="/etc/systemd/system/nezha-dashboard.service"
-NZ_SOURCE_REPO="${NZ_SOURCE_REPO:-https://github.com/nezha-rs/nezha-rs.git}"
-NZ_SOURCE_REF="${NZ_SOURCE_REF:-main}"
-NZ_BUILD_DIR="${NZ_BUILD_DIR:-/tmp/nezha-rs-src}"
-NZ_MIN_RUST="${NZ_MIN_RUST:-1.95.0}"
+NZ_RELEASE_REPO="${NZ_RELEASE_REPO:-nezha-rs/nezha-rs}"
+NZ_SCRIPT_URL="${NZ_SCRIPT_URL:-https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh}"
+NZ_VERSION="${NZ_VERSION:-latest}"
 
 red='\033[0;31m'
 green='\033[0;32m'
@@ -47,13 +46,6 @@ as_root() {
     fi
 }
 
-require_cmd() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        err "$1 not found."
-        exit 1
-    fi
-}
-
 check_debian12() {
     if [ "${NZ_SKIP_DEBIAN_CHECK:-0}" = "1" ]; then
         return
@@ -78,95 +70,103 @@ check_systemd() {
 }
 
 install_deps() {
-    info "> Install build dependencies"
+    info "> Install runtime dependencies"
     as_root apt-get update
-    as_root apt-get install -y ca-certificates curl git build-essential pkg-config
+    as_root apt-get install -y ca-certificates curl unzip coreutils
 }
 
-rust_version_ok() {
-    command -v rustc >/dev/null 2>&1 || return 1
-    current="$(rustc --version | awk '{print $2}' | sed 's/-.*//')"
-    min="$NZ_MIN_RUST"
-    current_major="$(printf "%s" "$current" | awk -F. '{print $1}')"
-    current_minor="$(printf "%s" "$current" | awk -F. '{print $2}')"
-    current_patch="$(printf "%s" "$current" | awk -F. '{print $3}')"
-    min_major="$(printf "%s" "$min" | awk -F. '{print $1}')"
-    min_minor="$(printf "%s" "$min" | awk -F. '{print $2}')"
-    min_patch="$(printf "%s" "$min" | awk -F. '{print $3}')"
-    current_patch="${current_patch:-0}"
-    min_patch="${min_patch:-0}"
-
-    [ "$current_major" -gt "$min_major" ] && return 0
-    [ "$current_major" -lt "$min_major" ] && return 1
-    [ "$current_minor" -gt "$min_minor" ] && return 0
-    [ "$current_minor" -lt "$min_minor" ] && return 1
-    [ "$current_patch" -ge "$min_patch" ]
+env_check() {
+    mach="$(uname -m)"
+    case "$mach" in
+        amd64|x86_64)
+            os_arch="amd64"
+            ;;
+        i386|i686)
+            os_arch="386"
+            ;;
+        aarch64|arm64)
+            os_arch="arm64"
+            ;;
+        armv5*|armv6*|armv7*|arm*)
+            os_arch="arm"
+            ;;
+        s390x)
+            os_arch="s390x"
+            ;;
+        riscv64)
+            os_arch="riscv64"
+            ;;
+        loongarch64)
+            os_arch="loong64"
+            ;;
+        *)
+            err "Unknown architecture: $mach"
+            exit 1
+            ;;
+    esac
 }
 
-load_cargo_env() {
-    if [ -f "$HOME/.cargo/env" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.cargo/env"
-    fi
+init_common() {
+    check_debian12
+    check_systemd
+    env_check
 }
 
-install_rust() {
-    load_cargo_env
-    if rust_version_ok && command -v cargo >/dev/null 2>&1; then
-        return
-    fi
-
-    info "> Install Rust toolchain with rustup"
-    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
-    load_cargo_env
-    require_cmd cargo
-    if ! rust_version_ok; then
-        err "Rust $NZ_MIN_RUST or newer is required."
-        exit 1
-    fi
+prepare_download_env() {
+    init_common
+    install_deps
 }
 
-script_dir() {
-    CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
-}
-
-resolve_source_dir() {
-    if [ -n "${NZ_SOURCE_DIR:-}" ]; then
-        printf "%s" "$NZ_SOURCE_DIR"
-        return
-    fi
-
-    dir="$(script_dir)"
-    if [ -f "$dir/../Cargo.toml" ]; then
-        CDPATH= cd -- "$dir/.." && pwd
-        return
-    fi
-
-    if [ -d "$NZ_BUILD_DIR/.git" ]; then
-        git -C "$NZ_BUILD_DIR" fetch --tags --prune
-        git -C "$NZ_BUILD_DIR" checkout "$NZ_SOURCE_REF"
-        git -C "$NZ_BUILD_DIR" pull --ff-only || true
+release_base_url() {
+    if [ -z "$NZ_VERSION" ] || [ "$NZ_VERSION" = "latest" ]; then
+        printf "https://github.com/%s/releases/latest/download" "$NZ_RELEASE_REPO"
     else
-        rm -rf "$NZ_BUILD_DIR"
-        git clone --depth 1 --branch "$NZ_SOURCE_REF" "$NZ_SOURCE_REPO" "$NZ_BUILD_DIR"
+        printf "https://github.com/%s/releases/download/%s" "$NZ_RELEASE_REPO" "$NZ_VERSION"
     fi
-    printf "%s" "$NZ_BUILD_DIR"
 }
 
-build_project() {
-    source_dir="$(resolve_source_dir)"
-    info "> Build Nezha Rust project from $source_dir"
-    (cd "$source_dir" && cargo build --workspace --release)
-    NZ_BUILT_DASHBOARD="$source_dir/target/release/nezha-dashboard"
-    NZ_BUILT_AGENT="$source_dir/target/release/nezha-agent"
-    [ -x "$NZ_BUILT_DASHBOARD" ] || {
-        err "nezha-dashboard binary was not built."
+download_file() {
+    url="$1"
+    output="$2"
+    curl -fL --retry 3 --connect-timeout 15 --max-time 300 "$url" -o "$output"
+}
+
+download_checksums() {
+    if [ -n "${NZ_CHECKSUMS_FILE:-}" ] && [ -f "$NZ_CHECKSUMS_FILE" ]; then
+        return
+    fi
+    NZ_CHECKSUMS_FILE="${NZ_TMP_DIR}/checksums.txt"
+    download_file "$(release_base_url)/checksums.txt" "$NZ_CHECKSUMS_FILE"
+}
+
+verify_checksum() {
+    asset="$1"
+    file="$2"
+    download_checksums
+    line="$(grep "  ${asset}\$" "$NZ_CHECKSUMS_FILE" || true)"
+    if [ -z "$line" ]; then
+        err "Checksum for $asset not found."
         exit 1
-    }
-    [ -x "$NZ_BUILT_AGENT" ] || {
-        err "nezha-agent binary was not built."
-        exit 1
-    }
+    fi
+    printf "%s\n" "$line" >"${NZ_TMP_DIR}/${asset}.sha256"
+    (
+        cd "$(dirname "$file")" &&
+        sha256sum -c "${NZ_TMP_DIR}/${asset}.sha256"
+    )
+}
+
+download_asset() {
+    asset="$1"
+    output="$2"
+    url="$(release_base_url)/${asset}"
+    info "> Download $asset"
+    download_file "$url" "$output"
+    verify_checksum "$asset" "$output"
+}
+
+with_tmp_dir() {
+    NZ_TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$NZ_TMP_DIR"' EXIT INT TERM
 }
 
 random_secret() {
@@ -275,6 +275,64 @@ ask_bool() {
     esac
 }
 
+dashboard_asset_name() {
+    case "$os_arch" in
+        amd64|arm64|s390x)
+            printf "dashboard-linux-%s.zip" "$os_arch"
+            ;;
+        *)
+            err "Dashboard release does not provide linux_${os_arch} binary."
+            exit 1
+            ;;
+    esac
+}
+
+agent_asset_name() {
+    printf "nezha-agent_linux_%s.zip" "$os_arch"
+}
+
+download_dashboard_binary() {
+    asset="$(dashboard_asset_name)"
+    zip_path="${NZ_TMP_DIR}/${asset}"
+    extract_dir="${NZ_TMP_DIR}/dashboard"
+    download_asset "$asset" "$zip_path"
+    mkdir -p "$extract_dir"
+    unzip -qo "$zip_path" -d "$extract_dir"
+    [ -x "$extract_dir/nezha-dashboard" ] || chmod +x "$extract_dir/nezha-dashboard"
+    [ -x "$extract_dir/nezha-dashboard" ] || {
+        err "nezha-dashboard binary not found in $asset."
+        exit 1
+    }
+    NZ_DOWNLOADED_DASHBOARD="$extract_dir/nezha-dashboard"
+}
+
+download_agent_binary() {
+    asset="$(agent_asset_name)"
+    zip_path="${NZ_TMP_DIR}/${asset}"
+    extract_dir="${NZ_TMP_DIR}/agent"
+    download_asset "$asset" "$zip_path"
+    mkdir -p "$extract_dir"
+    unzip -qo "$zip_path" -d "$extract_dir"
+    [ -x "$extract_dir/nezha-agent" ] || chmod +x "$extract_dir/nezha-agent"
+    [ -x "$extract_dir/nezha-agent" ] || {
+        err "nezha-agent binary not found in $asset."
+        exit 1
+    }
+    NZ_DOWNLOADED_AGENT="$extract_dir/nezha-agent"
+}
+
+install_dashboard_binary() {
+    download_dashboard_binary
+    as_root mkdir -p "$NZ_DASHBOARD_PATH"
+    as_root install -m 0755 "$NZ_DOWNLOADED_DASHBOARD" "$NZ_DASHBOARD_PATH/app"
+}
+
+install_agent_binary() {
+    download_agent_binary
+    as_root mkdir -p "$NZ_AGENT_PATH"
+    as_root install -m 0755 "$NZ_DOWNLOADED_AGENT" "$NZ_AGENT_PATH/nezha-agent"
+}
+
 dashboard_config_defaults() {
     config="$NZ_DASHBOARD_PATH/data/config.yaml"
     NZ_SITE_TITLE="${NZ_SITE_TITLE:-$(get_yaml_value "$config" site_name || true)}"
@@ -360,13 +418,7 @@ EOF
     rm -f "$tmp"
 }
 
-install_binaries() {
-    as_root mkdir -p "$NZ_DASHBOARD_PATH" "$NZ_AGENT_PATH"
-    as_root install -m 0755 "$NZ_BUILT_DASHBOARD" "$NZ_DASHBOARD_PATH/app"
-    as_root install -m 0755 "$NZ_BUILT_AGENT" "$NZ_AGENT_PATH/nezha-agent"
-}
-
-restart_dashboard() {
+restart_dashboard_service() {
     as_root systemctl daemon-reload
     as_root systemctl enable nezha-dashboard.service
     as_root systemctl restart nezha-dashboard.service
@@ -374,13 +426,13 @@ restart_dashboard() {
 
 install_dashboard() {
     echo "> Install Dashboard"
-    prepare_build_env
-    build_project
-    install_binaries
+    with_tmp_dir
+    prepare_download_env
+    install_dashboard_binary
     write_dashboard_config
     write_dashboard_env
     write_dashboard_unit
-    restart_dashboard
+    restart_dashboard_service
     success "Dashboard installed."
     info "HTTP:  http://SERVER_IP:${NZ_HTTP_PORT:-8008}/"
     info "Admin: http://SERVER_IP:${NZ_HTTP_PORT:-8008}/dashboard/"
@@ -394,18 +446,18 @@ modify_dashboard_config() {
     write_dashboard_config
     write_dashboard_env
     write_dashboard_unit
-    restart_dashboard
+    restart_dashboard_service
     success "Dashboard configuration updated."
 }
 
 restart_and_update_dashboard() {
     echo "> Restart and Update Dashboard"
-    prepare_build_env
-    build_project
-    install_binaries
+    with_tmp_dir
+    prepare_download_env
+    install_dashboard_binary
     write_dashboard_unit
-    restart_dashboard
-    success "Dashboard restarted and updated."
+    restart_dashboard_service
+    success "Dashboard restarted and updated from release binaries."
 }
 
 show_dashboard_log() {
@@ -471,9 +523,9 @@ write_agent_config() {
 
 install_agent() {
     echo "> Install Agent"
-    prepare_build_env
-    build_project
-    install_binaries
+    with_tmp_dir
+    prepare_download_env
+    install_agent_binary
     write_agent_config
     as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service uninstall >/dev/null 2>&1 || true
     as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service install
@@ -486,14 +538,22 @@ modify_agent_config() {
     echo "> Modify Agent Configuration"
     init_common
     if [ ! -x "$NZ_AGENT_PATH/nezha-agent" ]; then
+        with_tmp_dir
         install_deps
-        install_rust
-        build_project
-        install_binaries
+        install_agent_binary
     fi
     write_agent_config
     as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service restart
     success "Agent configuration updated."
+}
+
+restart_agent_update() {
+    echo "> Restart and Update Agent"
+    with_tmp_dir
+    prepare_download_env
+    install_agent_binary
+    as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service restart
+    success "Agent restarted and updated from release binaries."
 }
 
 restart_agent() {
@@ -503,26 +563,30 @@ restart_agent() {
 
 show_agent_log() {
     echo "> Agent Log"
-    service_name="nezha-agent"
-    as_root journalctl -xf -u "$service_name.service"
+    as_root journalctl -xf -u nezha-agent.service
 }
 
 uninstall_agent() {
     echo "> Uninstall Agent"
-    as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service uninstall >/dev/null 2>&1 || true
+    if [ -x "$NZ_AGENT_PATH/nezha-agent" ]; then
+        as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service uninstall >/dev/null 2>&1 || true
+    else
+        as_root systemctl stop nezha-agent.service >/dev/null 2>&1 || true
+        as_root systemctl disable nezha-agent.service >/dev/null 2>&1 || true
+        as_root rm -f /etc/systemd/system/nezha-agent.service
+        as_root systemctl daemon-reload
+    fi
     as_root rm -rf "$NZ_AGENT_PATH"
     success "Agent uninstalled."
 }
 
-init_common() {
-    check_debian12
-    check_systemd
-}
-
-prepare_build_env() {
-    init_common
-    install_deps
-    install_rust
+update_script() {
+    echo "> Update Script"
+    tmp="$(mktemp)"
+    download_file "$NZ_SCRIPT_URL" "$tmp"
+    chmod +x "$tmp"
+    mv -f "$tmp" ./nezha-rs.sh
+    success "Script updated: ./nezha-rs.sh"
 }
 
 before_show_menu() {
@@ -540,19 +604,20 @@ Usage:
   $0                         Show menu
   $0 install                 Install Dashboard
   $0 modify_config           Modify Dashboard configuration
-  $0 restart_and_update      Rebuild, install, and restart Dashboard
+  $0 restart_and_update      Download release and restart Dashboard
   $0 show_log                View Dashboard log
   $0 uninstall               Uninstall Dashboard
   $0 install_agent           Install Agent
   $0 modify_agent_config     Modify Agent configuration
+  $0 restart_agent_update    Download release and restart Agent
   $0 restart_agent           Restart Agent
   $0 show_agent_log          View Agent log
   $0 uninstall_agent         Uninstall Agent
+  $0 update_script           Download latest installer script
 
 Environment overrides:
-  NZ_SOURCE_DIR=/path/to/nezha-rs
-  NZ_SOURCE_REPO=https://github.com/nezha-rs/nezha-rs.git
-  NZ_SOURCE_REF=main
+  NZ_VERSION=latest or v0.1.0
+  NZ_RELEASE_REPO=nezha-rs/nezha-rs
   NZ_SITE_TITLE=Nezha
   NZ_HTTP_PORT=8008
   NZ_GRPC_BIND=0.0.0.0:5555
@@ -569,7 +634,7 @@ EOF
 
 show_menu() {
     println "${green}Nezha Rust Debian 12 Management Script${plain}"
-    echo "--- $NZ_SOURCE_REPO ---"
+    echo "--- https://github.com/${NZ_RELEASE_REPO}/releases ---"
     println "${green}1.${plain}  Install Dashboard"
     println "${green}2.${plain}  Modify Dashboard Configuration"
     println "${green}3.${plain}  Restart and Update Dashboard"
@@ -578,13 +643,15 @@ show_menu() {
     echo "--------------------------------------------------------"
     println "${green}6.${plain}  Install Agent"
     println "${green}7.${plain}  Modify Agent Configuration"
-    println "${green}8.${plain}  Restart Agent"
-    println "${green}9.${plain}  View Agent Log"
-    println "${green}10.${plain} Uninstall Agent"
+    println "${green}8.${plain}  Restart and Update Agent"
+    println "${green}9.${plain}  Restart Agent"
+    println "${green}10.${plain} View Agent Log"
+    println "${green}11.${plain} Uninstall Agent"
     echo "--------------------------------------------------------"
+    println "${green}12.${plain} Update Script"
     println "${green}0.${plain}  Exit"
     echo
-    printf "Please enter [0-10]: "
+    printf "Please enter [0-12]: "
     read -r num
     case "$num" in
         0) exit 0 ;;
@@ -595,10 +662,12 @@ show_menu() {
         5) uninstall_dashboard; before_show_menu ;;
         6) install_agent; before_show_menu ;;
         7) modify_agent_config; before_show_menu ;;
-        8) restart_agent; before_show_menu ;;
-        9) show_agent_log ;;
-        10) uninstall_agent; before_show_menu ;;
-        *) err "Please enter a number from 0 to 10."; before_show_menu ;;
+        8) restart_agent_update; before_show_menu ;;
+        9) restart_agent; before_show_menu ;;
+        10) show_agent_log ;;
+        11) uninstall_agent; before_show_menu ;;
+        12) update_script; before_show_menu ;;
+        *) err "Please enter a number from 0 to 12."; before_show_menu ;;
     esac
 }
 
@@ -611,9 +680,11 @@ case "${1:-}" in
     uninstall) uninstall_dashboard ;;
     install_agent) install_agent ;;
     modify_agent_config) modify_agent_config ;;
+    restart_agent_update) restart_agent_update ;;
     restart_agent) restart_agent ;;
     show_agent_log) show_agent_log ;;
     uninstall_agent) uninstall_agent ;;
+    update_script) update_script ;;
     -h|--help|help) show_usage ;;
     *) show_usage; exit 1 ;;
 esac
