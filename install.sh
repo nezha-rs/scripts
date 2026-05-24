@@ -281,6 +281,22 @@ ask_bool() {
     esac
 }
 
+confirm_uninstall() {
+    target="$1"
+    if [ "${NZ_YES:-0}" = "1" ] || [ "${NZ_YES:-}" = "true" ]; then
+        return 0
+    fi
+    if [ -t 0 ]; then
+        printf "Proceed to uninstall %s? [y/N]: " "$target"
+        read -r answer
+        case "$answer" in
+            y|Y|yes|YES) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+    return 0
+}
+
 dashboard_asset_name() {
     case "$os_arch" in
         amd64|arm64|s390x)
@@ -474,14 +490,7 @@ show_dashboard_log() {
 uninstall_dashboard() {
     echo "> Uninstall Dashboard"
     warn "This removes $NZ_DASHBOARD_PATH and $NZ_DASHBOARD_SERVICE."
-    if [ -t 0 ]; then
-        printf "Proceed? [y/N]: "
-        read -r answer
-        case "$answer" in
-            y|Y|yes|YES) ;;
-            *) return ;;
-        esac
-    fi
+    confirm_uninstall "Dashboard" || return
     as_root systemctl stop nezha-dashboard.service >/dev/null 2>&1 || true
     as_root systemctl disable nezha-dashboard.service >/dev/null 2>&1 || true
     as_root rm -f "$NZ_DASHBOARD_SERVICE"
@@ -613,6 +622,7 @@ Usage:
   $0 restart_and_update      Download release and restart Dashboard
   $0 show_log                View Dashboard log
   $0 uninstall               Uninstall Dashboard
+  $0 uninstall_dashboard     Uninstall Dashboard
   $0 install_agent           Install Agent
   $0 modify_agent_config     Modify Agent configuration
   $0 restart_agent_update    Download release and restart Agent
@@ -635,6 +645,7 @@ Environment overrides:
   NZ_SERVER=example.com:5555
   NZ_CLIENT_SECRET=secret
   NZ_TLS=false
+  NZ_YES=1
 EOF
 }
 
@@ -684,6 +695,7 @@ case "${1:-}" in
     restart_and_update) restart_and_update_dashboard ;;
     show_log) show_dashboard_log ;;
     uninstall) uninstall_dashboard ;;
+    uninstall_dashboard) uninstall_dashboard ;;
     install_agent) install_agent ;;
     modify_agent_config) modify_agent_config ;;
     restart_agent_update) restart_agent_update ;;

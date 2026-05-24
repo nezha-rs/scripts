@@ -31,6 +31,31 @@ chmod +x nezha-rs.sh
 ./nezha-rs.sh
 ```
 
+## 一键卸载面板
+
+直接卸载 Dashboard 面板：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh | sh -s -- uninstall_dashboard
+```
+
+如果你是先下载脚本再执行，默认会询问确认：
+
+```bash
+./nezha-rs.sh uninstall_dashboard
+```
+
+如需跳过确认：
+
+```bash
+NZ_YES=1 ./nezha-rs.sh uninstall_dashboard
+```
+
+卸载会停止并禁用 `nezha-dashboard.service`，删除：
+
+- `/opt/nezha/dashboard`
+- `/etc/systemd/system/nezha-dashboard.service`
+
 ## 安装 Dashboard
 
 交互式安装：
@@ -118,6 +143,7 @@ Dashboard：
 ./nezha-rs.sh restart_and_update  # 下载最新 release 并重启 Dashboard
 ./nezha-rs.sh show_log            # 查看 Dashboard 日志
 ./nezha-rs.sh uninstall           # 卸载 Dashboard
+./nezha-rs.sh uninstall_dashboard # 卸载 Dashboard
 ```
 
 Agent：
