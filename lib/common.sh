@@ -295,6 +295,31 @@ get_env_value() {
     fi
 }
 
+# Resolve a readable interactive input source. Prefer the controlling TTY so
+# that piped invocations (`curl ... | sh`) can still prompt the user. Sets the
+# global NZ_TTY_IN to a path readable by `read`, or empty if no interactive
+# input is available.
+_nz_resolve_tty() {
+    NZ_TTY_IN=""
+    if [ -t 0 ] && [ -r /dev/stdin ]; then
+        NZ_TTY_IN="/dev/stdin"
+        return 0
+    fi
+    if [ -r /dev/tty ] 2>/dev/null; then
+        NZ_TTY_IN="/dev/tty"
+        return 0
+    fi
+    return 1
+}
+
+_nz_prompt() {
+    if [ -w /dev/tty ] 2>/dev/null; then
+        printf "%s" "$1" >/dev/tty
+    else
+        printf "%s" "$1" >&2
+    fi
+}
+
 ask() {
     var="$1"
     prompt="$2"
@@ -304,17 +329,16 @@ ask() {
         eval "$var=\$current"
         return
     fi
-    if [ -t 0 ]; then
+    answer=""
+    if _nz_resolve_tty; then
         if [ -n "$default" ]; then
-            printf "%s [%s]: " "$prompt" "$default"
+            _nz_prompt "$prompt [$default]: "
         else
-            printf "%s: " "$prompt"
+            _nz_prompt "$prompt: "
         fi
-        read -r answer
-        [ -n "$answer" ] || answer="$default"
-    else
-        answer="$default"
+        read -r answer <"$NZ_TTY_IN" || answer=""
     fi
+    [ -n "$answer" ] || answer="$default"
     eval "$var=\$answer"
 }
 
@@ -330,15 +354,14 @@ ask_bool() {
         esac
         return
     fi
-    if [ -t 0 ]; then
+    answer=""
+    if _nz_resolve_tty; then
         if [ "$default" = "true" ]; then
-            printf "%s [Y/n]: " "$prompt"
+            _nz_prompt "$prompt [Y/n]: "
         else
-            printf "%s [y/N]: " "$prompt"
+            _nz_prompt "$prompt [y/N]: "
         fi
-        read -r answer
-    else
-        answer=""
+        read -r answer <"$NZ_TTY_IN" || answer=""
     fi
     [ -n "$answer" ] || answer="$default"
     case "$answer" in
@@ -352,13 +375,14 @@ confirm_uninstall() {
     if [ "${NZ_YES:-0}" = "1" ] || [ "${NZ_YES:-}" = "true" ]; then
         return 0
     fi
-    if [ -t 0 ]; then
-        printf "Proceed to uninstall %s? [y/N]: " "$target"
-        read -r answer
+    if _nz_resolve_tty; then
+        _nz_prompt "Proceed to uninstall ${target}? [y/N]: "
+        answer=""
+        read -r answer <"$NZ_TTY_IN" || answer=""
         case "$answer" in
             y|Y|yes|YES) return 0 ;;
             *) return 1 ;;
         esac
     fi
-    return 0
+    return 1
 }
