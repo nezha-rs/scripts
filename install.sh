@@ -46,18 +46,24 @@ as_root() {
     fi
 }
 
-check_debian12() {
+check_debian() {
     if [ "${NZ_SKIP_DEBIAN_CHECK:-0}" = "1" ]; then
         return
     fi
     if [ ! -r /etc/os-release ]; then
-        err "Cannot detect OS. This installer targets Debian 12."
+        err "Cannot detect OS. This installer targets Debian 12 or newer."
         exit 1
     fi
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [ "${ID:-}" != "debian" ] || [ "${VERSION_ID:-}" != "12" ]; then
-        err "This installer targets Debian 12. Set NZ_SKIP_DEBIAN_CHECK=1 to bypass."
+    debian_major="$(printf "%s" "${VERSION_ID:-0}" | awk -F. '{print $1}')"
+    case "$debian_major" in
+        ''|*[!0-9]*)
+            debian_major=0
+            ;;
+    esac
+    if [ "${ID:-}" != "debian" ] || [ "$debian_major" -lt 12 ]; then
+        err "This installer targets Debian 12 or newer. Set NZ_SKIP_DEBIAN_CHECK=1 to bypass."
         exit 1
     fi
 }
@@ -107,7 +113,7 @@ env_check() {
 }
 
 init_common() {
-    check_debian12
+    check_debian
     check_systemd
     env_check
 }
@@ -598,7 +604,7 @@ before_show_menu() {
 
 show_usage() {
     cat <<EOF
-Nezha Rust Debian 12 installer
+Nezha Rust Debian installer
 
 Usage:
   $0                         Show menu
@@ -633,7 +639,7 @@ EOF
 }
 
 show_menu() {
-    println "${green}Nezha Rust Debian 12 Management Script${plain}"
+    println "${green}Nezha Rust Debian Management Script${plain}"
     echo "--- https://github.com/${NZ_RELEASE_REPO}/releases ---"
     println "${green}1.${plain}  Install Dashboard"
     println "${green}2.${plain}  Modify Dashboard Configuration"

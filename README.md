@@ -1,6 +1,6 @@
 # Nezha Rust 一键安装脚本
 
-这是 `nezha-rs/nezha-rs` Rust 重构版的 Debian 12 一键安装脚本仓库。脚本会从 GitHub Release 下载已经编译好的二进制文件，不需要在服务器上安装 Rust 或从源码构建。
+这是 `nezha-rs/nezha-rs` Rust 重构版的 Debian 一键安装脚本仓库。脚本会从 GitHub Release 下载已经编译好的二进制文件，不需要在服务器上安装 Rust 或从源码构建。
 
 Release 来源：
 
@@ -9,7 +9,7 @@ Release 来源：
 
 ## 支持环境
 
-- Debian 12
+- Debian 12 或更新版本
 - systemd
 - root 用户，或已安装 `sudo` 的普通用户
 - 支持的 Dashboard 架构：`amd64`、`arm64`、`s390x`
