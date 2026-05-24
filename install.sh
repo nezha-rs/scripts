@@ -426,6 +426,27 @@ write_dashboard_env() {
     rm -f "$tmp"
 }
 
+dashboard_supports_admin_password_reset() {
+    as_root "$NZ_DASHBOARD_PATH/app" --help 2>/dev/null | grep -q "reset-admin-password"
+}
+
+reset_dashboard_admin_password() {
+    NZ_ADMIN_PASSWORD_SYNCED=0
+    if ! dashboard_supports_admin_password_reset; then
+        warn "Dashboard binary does not support admin password sync."
+        warn "If this is not a fresh install, the printed password may not match the existing database password."
+        return
+    fi
+
+    info "> Sync Dashboard admin password"
+    as_root env "NZ_ADMIN_USERNAME=$NZ_ADMIN_USERNAME" "NZ_ADMIN_PASSWORD=$NZ_ADMIN_PASSWORD" \
+        "$NZ_DASHBOARD_PATH/app" --data "$NZ_DASHBOARD_PATH/data/sqlite.db" reset-admin-password >/dev/null || {
+        err "failed to sync dashboard admin password"
+        exit 1
+    }
+    NZ_ADMIN_PASSWORD_SYNCED=1
+}
+
 write_dashboard_unit() {
     grpc_bind="${NZ_GRPC_BIND:-0.0.0.0:5555}"
     tmp="$(mktemp)"
@@ -468,6 +489,7 @@ install_dashboard() {
     install_dashboard_binary
     write_dashboard_config
     write_dashboard_env
+    reset_dashboard_admin_password
     write_dashboard_unit
     restart_dashboard_service
     success "Dashboard installed."
@@ -475,7 +497,11 @@ install_dashboard() {
     info "Dashboard Admin: http://SERVER_IP:${NZ_HTTP_PORT:-8008}/dashboard/"
     info "Agent gRPC: $(display_bind "${NZ_GRPC_BIND:-0.0.0.0:5555}")"
     info "Admin username: ${NZ_ADMIN_USERNAME:-admin}"
-    info "Admin password: ${NZ_ADMIN_PASSWORD}"
+    if [ "${NZ_ADMIN_PASSWORD_SYNCED:-0}" = "1" ]; then
+        info "Admin password: ${NZ_ADMIN_PASSWORD}"
+    else
+        info "Admin password: ${NZ_ADMIN_PASSWORD} (fresh installs only)"
+    fi
 }
 
 modify_dashboard_config() {
@@ -483,6 +509,7 @@ modify_dashboard_config() {
     init_common
     write_dashboard_config
     write_dashboard_env
+    reset_dashboard_admin_password
     write_dashboard_unit
     restart_dashboard_service
     success "Dashboard configuration updated."
