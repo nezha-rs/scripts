@@ -183,6 +183,21 @@ yaml_quote() {
     printf "%s" "$1" | sed "s/'/''/g; s/^/'/; s/$/'/"
 }
 
+display_bind() {
+    bind="$1"
+    case "$bind" in
+        0.0.0.0:*)
+            printf "SERVER_IP:%s" "${bind##*:}"
+            ;;
+        "[::]":*)
+            printf "SERVER_IP:%s" "${bind##*:}"
+            ;;
+        *)
+            printf "%s" "$bind"
+            ;;
+    esac
+}
+
 get_yaml_value() {
     file="$1"
     key="$2"
@@ -456,8 +471,9 @@ install_dashboard() {
     write_dashboard_unit
     restart_dashboard_service
     success "Dashboard installed."
-    info "HTTP:  http://SERVER_IP:${NZ_HTTP_PORT:-8008}/"
-    info "Admin: http://SERVER_IP:${NZ_HTTP_PORT:-8008}/dashboard/"
+    info "Dashboard HTTP: http://SERVER_IP:${NZ_HTTP_PORT:-8008}/"
+    info "Dashboard Admin: http://SERVER_IP:${NZ_HTTP_PORT:-8008}/dashboard/"
+    info "Agent gRPC: $(display_bind "${NZ_GRPC_BIND:-0.0.0.0:5555}")"
     info "Admin username: ${NZ_ADMIN_USERNAME:-admin}"
     info "Admin password: ${NZ_ADMIN_PASSWORD}"
 }
@@ -635,8 +651,8 @@ Environment overrides:
   NZ_VERSION=latest or v0.1.0
   NZ_RELEASE_REPO=nezha-rs/nezha-rs
   NZ_SITE_TITLE=Nezha
-  NZ_HTTP_PORT=8008
-  NZ_GRPC_BIND=0.0.0.0:5555
+  NZ_HTTP_PORT=8008          Dashboard HTTP panel port
+  NZ_GRPC_BIND=0.0.0.0:5555  Agent gRPC access port
   NZ_INSTALL_HOST=https://nezha.example.com
   NZ_AGENT_TLS=false
   NZ_AGENT_SECRET_KEY=secret

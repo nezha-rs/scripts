@@ -70,6 +70,7 @@ curl -fsSL https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh | 
 curl -fsSL https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh | \
   NZ_SITE_TITLE="Nezha" \
   NZ_HTTP_PORT="8008" \
+  NZ_GRPC_BIND="0.0.0.0:5555" \
   NZ_INSTALL_HOST="https://nezha.example.com" \
   NZ_AGENT_TLS="true" \
   NZ_AGENT_SECRET_KEY="replace-with-agent-secret" \
@@ -80,13 +81,20 @@ curl -fsSL https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh | 
 
 安装完成后：
 
-- 用户前台：`http://服务器IP:8008/`
-- 管理后台：`http://服务器IP:8008/dashboard/`
-- Agent gRPC 默认入口：`服务器IP:5555`
+- Dashboard 用户前台：`http://服务器IP:8008/`
+- Dashboard 管理后台：`http://服务器IP:8008/dashboard/`
+- Agent gRPC 接入入口：`服务器IP:5555`
+
+Dashboard 的 Web 端口和 Agent 的 gRPC 端口是分开的：
+
+```bash
+NZ_HTTP_PORT=8008          # Dashboard HTTP 面板端口
+NZ_GRPC_BIND=0.0.0.0:5555  # Agent gRPC 接入端口
+```
 
 ## 安装 Agent
 
-在被监控机器上执行：
+在被监控机器上执行。注意：`NZ_SERVER` 填的是 Dashboard 的 Agent gRPC 接入地址，不是 Dashboard 的 HTTP 面板地址。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nezha-rs/scripts/main/install.sh | \
@@ -180,8 +188,8 @@ Dashboard 常用变量：
 ```bash
 NZ_VERSION=latest
 NZ_SITE_TITLE=Nezha
-NZ_HTTP_PORT=8008
-NZ_GRPC_BIND=0.0.0.0:5555
+NZ_HTTP_PORT=8008          # Dashboard HTTP 面板端口
+NZ_GRPC_BIND=0.0.0.0:5555  # Agent gRPC 接入端口
 NZ_INSTALL_HOST=https://nezha.example.com
 NZ_AGENT_TLS=false
 NZ_AGENT_SECRET_KEY=replace-with-agent-secret
