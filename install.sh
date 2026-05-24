@@ -149,7 +149,7 @@ verify_checksum() {
     asset="$1"
     file="$2"
     download_checksums
-    line="$(grep "  ${asset}\$" "$NZ_CHECKSUMS_FILE" || true)"
+    line="$(tr -d '\r' <"$NZ_CHECKSUMS_FILE" | awk -v asset="$asset" '$2 == asset {print $1 "  " $2; exit}')"
     if [ -z "$line" ]; then
         err "Checksum for $asset not found."
         exit 1
