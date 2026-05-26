@@ -10,6 +10,9 @@
 #   ./install-agent.sh uninstall
 #   ./install-agent.sh update_script
 
+set -eu
+( set -o pipefail 2>/dev/null ) && set -o pipefail || true
+
 _nz_load_common() {
     if [ -n "${NZ_COMMON_LIB:-}" ] && [ -r "$NZ_COMMON_LIB" ]; then
         . "$NZ_COMMON_LIB"

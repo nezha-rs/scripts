@@ -9,6 +9,9 @@
 #   ./install-dashboard.sh uninstall
 #   ./install-dashboard.sh update_script
 
+set -eu
+( set -o pipefail 2>/dev/null ) && set -o pipefail || true
+
 # Locate or fetch the shared lib.
 _nz_load_common() {
     if [ -n "${NZ_COMMON_LIB:-}" ] && [ -r "$NZ_COMMON_LIB" ]; then
@@ -181,10 +184,30 @@ ExecStart=$NZ_DASHBOARD_PATH/app --config $NZ_DASHBOARD_PATH/data/config.yaml --
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
-ProtectSystem=full
+ProtectSystem=strict
 ReadWritePaths=$NZ_DASHBOARD_PATH
+ProtectHome=true
 PrivateTmp=yes
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
 NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
