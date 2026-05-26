@@ -45,7 +45,7 @@ _nz_load_common
 dashboard_asset_name() {
     case "$os_arch" in
         amd64|arm64|s390x)
-            printf "dashboard-linux-%s.zip" "$os_arch"
+            printf "nezha-dashboard_linux_%s.zip" "$os_arch"
             ;;
         *)
             err "Dashboard release does not provide linux_${os_arch} binary."
