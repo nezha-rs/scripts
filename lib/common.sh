@@ -200,11 +200,21 @@ _nz_cleanup_tmp_dirs() {
 }
 
 random_secret() {
-    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"
+    len="${1:-32}"
+    secret=""
+    while [ "${#secret}" -lt "$len" ]; do
+        chunk="$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | LC_ALL=C tr -dc 'A-Za-z0-9')"
+        secret="${secret}${chunk}"
+    done
+    printf "%.*s" "$len" "$secret"
 }
 
 yaml_quote() {
     printf "%s" "$1" | sed "s/'/''/g; s/^/'/; s/$/'/"
+}
+
+shell_quote() {
+    printf "%s" "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
 }
 
 display_bind() {
@@ -286,10 +296,37 @@ get_yaml_value() {
 get_env_value() {
     file="$1"
     key="$2"
+    _nz_env_extract() {
+        awk -v key="$1" '
+        index($0, key "=") == 1 {
+            v = substr($0, length(key) + 2)
+            sub(/\r$/, "", v)
+            if (substr(v, 1, 1) == "'\''") {
+                rest = substr(v, 2)
+                out = ""
+                for (i = 1; i <= length(rest); i++) {
+                    c = substr(rest, i, 1)
+                    if (c == "'\''") {
+                        if (substr(rest, i, 4) == "'\''\\'\'''\''") {
+                            out = out "'\''"
+                            i += 3
+                            continue
+                        }
+                        break
+                    }
+                    out = out c
+                }
+                v = out
+            }
+            print v
+            exit
+        }
+        ' "$2"
+    }
     if [ -r "$file" ]; then
-        awk -F= -v key="$key" '$1 == key {print $2; exit}' "$file"
+        _nz_env_extract "$key" "$file"
     elif command -v sudo >/dev/null 2>&1; then
-        sudo awk -F= -v key="$key" '$1 == key {print $2; exit}' "$file" 2>/dev/null
+        sudo cat "$file" 2>/dev/null | _nz_env_extract "$key" /dev/stdin
     else
         return 1
     fi
@@ -320,13 +357,40 @@ _nz_prompt() {
     fi
 }
 
+_nz_valid_var() {
+    case "$1" in
+        [A-Za-z_]*)
+            case "$1" in
+                *[!A-Za-z0-9_]*)
+                    return 1
+                    ;;
+            esac
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+_nz_set_var() {
+    _nz_valid_var "$1" || {
+        err "Invalid variable name: $1"
+        exit 1
+    }
+    export "$1=$2"
+}
+
 ask() {
     var="$1"
     prompt="$2"
     default="$3"
+    _nz_valid_var "$var" || {
+        err "Invalid variable name: $var"
+        exit 1
+    }
     eval "current=\${$var:-}"
     if [ -n "$current" ]; then
-        eval "$var=\$current"
+        _nz_set_var "$var" "$current"
         return
     fi
     answer=""
@@ -339,18 +403,22 @@ ask() {
         read -r answer <"$NZ_TTY_IN" || answer=""
     fi
     [ -n "$answer" ] || answer="$default"
-    eval "$var=\$answer"
+    _nz_set_var "$var" "$answer"
 }
 
 ask_bool() {
     var="$1"
     prompt="$2"
     default="$3"
+    _nz_valid_var "$var" || {
+        err "Invalid variable name: $var"
+        exit 1
+    }
     eval "current=\${$var:-}"
     if [ -n "$current" ]; then
         case "$current" in
-            1|true|TRUE|yes|YES|y|Y) eval "$var=true" ;;
-            *) eval "$var=false" ;;
+            1|true|TRUE|yes|YES|y|Y) _nz_set_var "$var" true ;;
+            *) _nz_set_var "$var" false ;;
         esac
         return
     fi
@@ -365,8 +433,8 @@ ask_bool() {
     fi
     [ -n "$answer" ] || answer="$default"
     case "$answer" in
-        1|true|TRUE|yes|YES|y|Y) eval "$var=true" ;;
-        *) eval "$var=false" ;;
+        1|true|TRUE|yes|YES|y|Y) _nz_set_var "$var" true ;;
+        *) _nz_set_var "$var" false ;;
     esac
 }
 

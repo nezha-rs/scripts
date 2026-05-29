@@ -154,12 +154,11 @@ uninstall_agent() {
     confirm_uninstall "Agent" || return
     if [ -x "$NZ_AGENT_PATH/nezha-agent" ]; then
         as_root "$NZ_AGENT_PATH/nezha-agent" --config "$NZ_AGENT_PATH/config.yml" service uninstall >/dev/null 2>&1 || true
-    else
-        as_root systemctl stop nezha-agent.service >/dev/null 2>&1 || true
-        as_root systemctl disable nezha-agent.service >/dev/null 2>&1 || true
-        as_root rm -f /etc/systemd/system/nezha-agent.service
-        as_root systemctl daemon-reload
     fi
+    as_root systemctl stop nezha-agent.service >/dev/null 2>&1 || true
+    as_root systemctl disable nezha-agent.service >/dev/null 2>&1 || true
+    as_root rm -f /etc/systemd/system/nezha-agent.service
+    as_root systemctl daemon-reload
     as_root rm -rf "$NZ_AGENT_PATH"
     success "Agent uninstalled."
 }

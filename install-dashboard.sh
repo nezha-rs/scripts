@@ -123,9 +123,9 @@ write_dashboard_env() {
     NZ_ADMIN_PASSWORD="${NZ_ADMIN_PASSWORD:-$(random_secret 18)}"
     tmp="$(mktemp)"
     {
-        printf "RUST_LOG=%s\n" "${RUST_LOG:-info}"
-        printf "NZ_ADMIN_USERNAME=%s\n" "$NZ_ADMIN_USERNAME"
-        printf "NZ_ADMIN_PASSWORD=%s\n" "$NZ_ADMIN_PASSWORD"
+        printf "RUST_LOG=%s\n" "$(shell_quote "${RUST_LOG:-info}")"
+        printf "NZ_ADMIN_USERNAME=%s\n" "$(shell_quote "$NZ_ADMIN_USERNAME")"
+        printf "NZ_ADMIN_PASSWORD=%s\n" "$(shell_quote "$NZ_ADMIN_PASSWORD")"
     } >"$tmp"
     as_root install -m 0600 "$tmp" "$NZ_DASHBOARD_PATH/.env"
     rm -f "$tmp"
@@ -149,8 +149,8 @@ reset_dashboard_admin_password() {
     env_file="$(mktemp)"
     chmod 600 "$env_file"
     {
-        printf "NZ_ADMIN_USERNAME=%s\n" "$NZ_ADMIN_USERNAME"
-        printf "NZ_ADMIN_PASSWORD=%s\n" "$NZ_ADMIN_PASSWORD"
+        printf "NZ_ADMIN_USERNAME=%s\n" "$(shell_quote "$NZ_ADMIN_USERNAME")"
+        printf "NZ_ADMIN_PASSWORD=%s\n" "$(shell_quote "$NZ_ADMIN_PASSWORD")"
     } >"$env_file"
     if ! as_root env -i "PATH=$PATH" sh -c '
         set -eu
