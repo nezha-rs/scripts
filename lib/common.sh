@@ -145,7 +145,7 @@ download_checksums() {
         return
     fi
     NZ_CHECKSUMS_FILE="${NZ_TMP_DIR}/checksums.txt"
-    download_file "$(release_base_url)/checksums.txt" "$NZ_CHECKSUMS_FILE"
+    download_file "$(release_base_url)/checksums.txt?cache_bust=$(date +%s)" "$NZ_CHECKSUMS_FILE"
 }
 
 verify_checksum() {
